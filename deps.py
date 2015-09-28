@@ -125,7 +125,7 @@ def download_all(store_path):
         with open(os.path.join(store_path, 'index.js'), 'w') as fd:
             fd.write("[\n")
             dload_1p = functools.partial(dload, store_path)
-            it = pool.map(dload_1p, enumerate(client.list_packages()[:10]))
+            it = pool.map(dload_1p, enumerate(client.list_packages()))
             for package, version, fname in it:
                 fd.write(json.dumps((package, version, fname)) + ",\n")
                 fd.flush()
