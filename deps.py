@@ -5,6 +5,7 @@ import json
 import shutil
 import urllib
 import httplib
+import argparse
 import warnings
 import traceback
 import functools
@@ -39,21 +40,19 @@ def dload(storage_dir, (idx, package)):
             return package, latest, fname
         return package, None, "Failed to found link"
     except Exception as exc:
-        return package, None, "Failed to process: " + str(exc)
+        return package, None, "Failed to process: " + str(exc).replace("\n", ' ')
 
 
 rr = re.compile(r'(?ims)"?install_requires"?\s*(=|:)\s*\[(?P<deps>.*?)\]')
 
 
 def analyze_package((idx, path)):
-    # if idx % 100 == 99:
-    #     print "Processing {0} package".format(idx + 1)
-
     package = os.path.basename(path).rsplit('-', 1)[0]
     try:
         return _analyze_package(path, package)
     except:
-        # print package + "\n" + traceback.format_exc() + "\n",
+        msg = "-" * 60 + "\n" + package + ":" + traceback.format_exc() + "\n"
+        sys.stderr.write(msg)
         return package, None
 
 
@@ -99,8 +98,9 @@ def _analyze_package(path, package):
                    and not line.strip().startswith('#')
                    and not line.strip().startswith('-')]
         except:
-            # print package + " requirements.txt - BROKEN\n" + traceback.format_exc()
-            pass
+            msg = "-" * 60 + "\n" + package + \
+                  " requirements.txt - BROKEN\n" + traceback.format_exc() + "\n"
+            sys.stderr.write(msg)
 
     if setup_py is not None and res is None:
         data = open(setup_py).read()
@@ -125,24 +125,42 @@ def download_all(store_path):
         with open(os.path.join(store_path, 'index.js'), 'w') as fd:
             fd.write("[\n")
             dload_1p = functools.partial(dload, store_path)
-            it = pool.map(dload_1p, enumerate(client.list_packages()))
+            it = pool.map(dload_1p, enumerate(client.list_packages()[:10]))
             for package, version, fname in it:
                 fd.write(json.dumps((package, version, fname)) + ",\n")
                 fd.flush()
             fd.write("]\n")
 
 
-store_path = sys.argv[1]
-# download_all(store_path)
-packages = []
-for arch in sorted(os.listdir(store_path)):
-    path = os.path.join(store_path, arch)
-    if os.path.isfile(path):
-        packages.append(path)
+def parse_args(argv):
+    p = argparse.ArgumentParser()
+    p.add_argument('cmd', choices=("collect", "report"), help="CMD")
+    p.add_argument('storage', help="storage directory")
+    return p.parse_args(argv)
 
-with ThreadPoolExecutor(64) as pool:
-    for package, deps in pool.map(analyze_package, enumerate(packages)):
-        if deps is None:
-            print package + ", null"
-        else:
-            print package + ',' + ','.join(deps)
+
+def main(argv):
+    args = parse_args(argv)
+    if args.cmd == 'collect':
+        download_all(args.storage)
+    elif args.cmd == 'report':
+        packages = []
+        for arch in sorted(os.listdir(args.storage)):
+            path = os.path.join(args.storage, arch)
+            if os.path.isfile(path):
+                packages.append(path)
+
+        with ThreadPoolExecutor(64) as pool:
+            for package, deps in pool.map(analyze_package, enumerate(packages)):
+                if deps is None:
+                    print package + ", null"
+                else:
+                    print package + ',' + ','.join(deps)
+    else:
+        print "Unknown command"
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    exit(main(sys.argv[1:]))
